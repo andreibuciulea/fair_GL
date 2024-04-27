@@ -1,0 +1,30 @@
+{
+    "num_trials":15,
+
+    "N":36,
+    "G":2,
+    "M":100000,
+    "L":2,
+    "signal_model":"poly",
+
+    "alpha":0.1,
+    "beta":100,
+    "delta":1e-4,
+    "eps_thresh":1e-2,
+    "verbose":false,
+    "mu":1e4,
+    "eps_init":1e-2,
+    "factor_eps":2,
+    "max_iters_eps":25,
+
+    "opt_bias_type":"dp",
+    "eval_bias_type":"ratio",
+    "REWEIGHTED":false,
+    "UPPER_BOUND":false,
+
+    "edge_prob":0.2,
+    "deg":3,
+    "in_prob":0.3,
+    "out_prob":0.1,
+    "num_blocks":2
+}
