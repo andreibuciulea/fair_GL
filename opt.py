@@ -2,7 +2,146 @@ from utils import *
 import cvxpy as cp
 import mosek
 
+from numpy import linalg as la
+
 # ---------------------
+
+def prox_grad_step_(C_hat, Theta, B_TB, lamb, eta, epsilon):
+    Soft_thresh = lambda Z, alpha: np.maximum(np.abs(Z) - alpha, 0)*np.sign(Z)
+    N = C_hat.shape[0]
+
+    # Gradient step + soft-thresholding
+    Gradient = C_hat - la.inv(Theta + epsilon*np.eye(N)) + B_TB @ Theta
+    Theta_aux = Soft_thresh(Theta - eta*Gradient, eta*lamb)
+    Theta_aux = (Theta_aux + Theta_aux.T)/2
+    
+    # Projection 
+    eigenvals, eigenvecs = la.eigh(Theta_aux)
+    eigenvals[eigenvals < 0] = 0
+    Theta_next = eigenvecs @ np.diag(eigenvals) @ eigenvecs.T
+    return Theta_next
+
+def node_FGL_ppgd(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=None):
+    """
+    Solve a graphical lasso problem with node fairness regularization using Projected Proximal Gradient Descent (PPGD).
+
+    Parameters:
+    -----------
+    C_hat : numpy.ndarray
+        Sample covariance matrix.
+    lamb : float
+        Weight for the l1 norm.
+    eta : float
+        Step size.
+    beta : float
+        Weight for the fairness penalty.
+    B : numpy.ndarray
+        Matrix of sensitive attributes for the fairness penalty.
+    epsilon : float, optional
+        Small constant to load the diagonal of the estimated Theta to ensure strict positivity (default is 0.1).
+    iters : int, optional
+        Number of iterations (default is 1000).
+    A_true : numpy.ndarray or None, optional
+        True precision matrix to keep track of the error (default is None).
+
+    Returns:
+    --------
+    Theta_next : numpy.ndarray
+        Estimated precision matrix.
+    errs_A : numpy.ndarray
+        Array of errors in precision matrix estimation over iterations (if A_true is provided).
+
+    Notes:
+    ------
+    Projected Proximal Gradient Descent (PPGD) implementation with the second demographic parity penalty.
+    """
+    N = C_hat.shape[0]
+    # Initialize Theta_k to an invertible matrix
+    Theta_k = np.eye(N)
+
+    # Precompute B^T*B for efficiency
+    B_TB = beta * B.T @ B
+
+    errs_A = np.zeros(iters)
+    if A_true is not None:
+        Theta_non_diag = A_true[~np.eye(N, dtype=bool)]
+        norm_Theta_true = la.norm(Theta_non_diag)
+
+    for i in range(iters):
+        Theta_next = prox_grad_step_(C_hat, Theta_k, B_TB, lamb, eta, epsilon)
+        Theta_k = Theta_next
+
+        if A_true is not None:
+            errs_A[i] = (la.norm(Theta_non_diag - Theta_k[~np.eye(N, dtype=bool)])/norm_Theta_true)**2
+
+    return Theta_next, errs_A
+
+
+def node_FGL_fista(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=None):
+    """
+    Solve a graphical lasso problem with node fairness regularization using the FISTA algorithm.
+
+    Parameters:
+    -----------
+    C_hat : numpy.ndarray
+        Sample covariance matrix.
+    lamb : float
+        Weight for the l1 norm.
+    eta : float
+        Step size.
+    beta : float
+        Weight for the fairness penalty.
+    B : numpy.ndarray
+        Matrix of sensitive attributes for the fairness penalty.
+    epsilon : float, optional
+        Small constant to load the diagonal of the estimated Theta to ensure strict positivity (default is 0.1).
+    iters : int, optional
+        Number of iterations (default is 1000).
+    A_true : numpy.ndarray or None, optional
+        True precision matrix to keep track of the error (default is None).
+
+    Returns:
+    --------
+    Theta_k : numpy.ndarray
+        Estimated precision matrix.
+    errs_A : numpy.ndarray
+        Array of errors in precision matrix estimation over iterations (if A_true is provided).
+
+    Notes:
+    ------
+    FISTA (Fast Iterative Shrinkage-Thresholding Algorithm) implementation with the second demographic parity penalty.
+    """
+    N = C_hat.shape[0]
+    # Ensure Theta_current is initialized to an invertible matrix
+    Theta_prev = np.eye(N)
+    Theta_fista = np.eye(N)
+    t_k = 1
+
+    # Precompute B^T*B for efficiency
+    B_TB = beta * B.T @ B
+
+    # Initialize array to store errors in precision matrix estimation
+    errs_A = np.zeros(iters)
+
+    # Compute the norm of non-diagonal elements of A_true for error calculation
+    if A_true is not None:
+        Theta_non_diag = A_true[~np.eye(N, dtype=bool)]
+        norm_Theta_true = la.norm(Theta_non_diag)
+
+    for i in range(iters):
+        Theta_k = prox_grad_step_(C_hat, Theta_fista, B_TB, lamb, eta, epsilon)
+        t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
+        Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
+
+        # Update values for next iteration
+        Theta_prev = Theta_k
+        t_k = t_next
+
+        # Calculate error in precision matrix estimation if A_true is provided
+        if A_true is not None:
+            errs_A[i] = (la.norm(Theta_non_diag - Theta_k[~np.eye(N, dtype=bool)])/norm_Theta_true)**2
+
+    return Theta_k, errs_A
 
 def GSR_reweighted(C,
                    alpha=.1,
