@@ -314,8 +314,79 @@ def FGSR(C,Z,
 
 # ---------------------
 
-def GLASSO(C,
-           lmbda=1):
-    pass
+def FGLASSO(C,Z,
+         alpha=.1,
+         beta=1,
+         mu=None,
+         eps=None,
+         bias_type:str='dp'):
+    assert (mu is None or eps is None), 'Invalid parameters. Provide mu or eps but not both.'
+    assert (mu is None) or (mu>=0), 'Invalid choice of penalty parameter mu.'
+    assert (eps is None) or (eps>=0), 'Invalid choice of upper bound parameter eps.'
+    assert C.shape[0]==C.shape[1], 'Invalid covariance matrix.'
+    assert Z.shape[1]==C.shape[0], 'Inconsistent number of nodes.'
+
+    # ---------------------
+    if (mu is None) and (eps is None):
+        eps = 1e-2
+    (N,N) = C.shape
+    G = Z.shape[0]
+    Ng = np.sum(Z,axis=1).astype(int)
+    # ---------------------
+
+
+    # ---------------------
+    if bias_type=='dp':
+        bias_penalty = lambda A: (1/(G*(G-1))) * cp.sum( [cp.abs( cp.sum( A[Z[g1]==1][:,Z[g1]==1] ) / np.maximum(Ng[g1]*(Ng[g1]-1),1) - cp.sum( A[Z[g1]==1][:,Z[g2]==1] ) / np.maximum(Ng[g1]*Ng[g2],1) ) for g1 in range(G) for g2 in np.delete(np.arange(G),g1)] )
+    elif bias_type=='global':
+        bias_penalty = lambda A: (1/(N*(N-1))) * cp.abs( cp.sum( [cp.sum( A[Z[g1]==1][:,Z[g1]==1] ) - cp.sum( [cp.sum( A[Z[g1]==1][:,Z[g2]==1] ) for g2 in np.delete(np.arange(G),g1)] ) for g1 in range(G)] ) )
+    elif bias_type=='groupwise':
+        bias_penalty = lambda A: (1/(G*(G-1))) * cp.sum( [cp.abs( cp.sum( [cp.sum( A[Z[g1]==1][:,Z[g1]==1] ) / np.maximum(Ng[g1]*(Ng[g1]-1),1) - cp.sum( A[Z[g1]==1][:,Z[g2]==1] ) / np.maximum(Ng[g1]*Ng[g2],1) for g2 in np.delete(np.arange(G),g1)] ) ) for g1 in range(G)] )
+    elif bias_type=='tot_corr':
+        bias_penalty = lambda A: (1/(N*G*(G-1))) * cp.sum( [cp.sum( [cp.abs( cp.sum( [cp.sum( A[i,Z[g1]==1]) - cp.sum(A[i,Z[g2]==1] ) for g2 in np.delete(np.arange(G),g1)] ) ) for g1 in range(G)] ) for i in range(N)] )
+    elif bias_type=='nodewise':
+        bias_penalty = lambda A: (1/(N*G*(G-1))) * cp.sum( [cp.sum( [cp.abs( cp.sum( [cp.sum( A[i,Z[g1]==1])/np.maximum(Ng[g1],1) - cp.sum(A[i,Z[g2]==1] )/np.maximum(Ng[g2],1) for g2 in np.delete(np.arange(G),g1)] ) ) for g1 in range(G)] ) for i in range(N)] )
+    else:
+        print('Invalid bias type.')
+    # ---------------------
+
+
+    # ---------------------
+    A = cp.Variable((N,N),PSD=True)
+    obj = 0
+    constr = []
+    non_diag = ~np.eye(N, dtype=bool)
+    
+    obj = cp.trace(A@C) - cp.log_det(A) # trace and log det
+    obj = obj + alpha*cp.norm(A[non_diag],1) #L1 norm penalty
+    obj = obj + beta*bias_penalty(A) # bias penalty
+    constr += [ cp.abs(cp.sum(A[0])-1) <= 1e-9] # avoiding zero solution
+    #constr += [ A >= 0 ] # Positive values
+    #constr += [ cp.diag(A)==0 ] #zero diagonal
+    #if mu is not None:
+    #    assert eps is None
+    #    obj = obj + mu*cp.norm(C@A - A@C,'fro')**2
+    #else:
+    #    assert eps is not None
+    #    constr += [ cp.sum_squares(A@C-C@A) <= eps**2 ]
+    
+    prob = cp.Problem(cp.Minimize(obj),constr)
+    try:
+        obj = prob.solve(solver='MOSEK', verbose=False)
+    except cp.SolverError:
+        try:
+            obj = prob.solve(solver='CVXOPT', verbose=False)
+        except cp.SolverError:
+            try:
+                obj = prob.solve(solver='ECOS', verbose=False)
+            except cp.SolverError:
+                print('Solver error. Proceed with caution.')
+                return None
+    # ---------------------
+
+    A_est = A.value
+    np.fill_diagonal(A_est,0)
+    return A_est
+    # ---------------------
 
 # ---------------------
