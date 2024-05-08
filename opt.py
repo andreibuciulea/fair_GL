@@ -5,13 +5,44 @@ import mosek
 from numpy import linalg as la
 
 # ---------------------
+def fairness_penalty(Theta, Z, bias_type)
+    G,N = Z.shape
+    if bias_type=='dp':
+        B = np.zeros((N,N))
+        for g in range(G):
+            for h in range(G):
+                if h != g:
+                    zg = Z[g,:]==1
+                    zh = Z[h,:]==1
+                    Ng = np.sum(zg)
+                    Nh = np.sum(zh)
+                    cg = Ng**2-Ng
+                    cgh = Ng*Nh
+                    Cgh = cgh*np.outer(zg,zg.T) - cg*np.outer(zh,zg.T)
+                    B += 1/(cg*cgh)*np.trace(Theta@Cgh)*Cgh.T 
+        bias_penalty = B
+    elif bias_type=='nodewise':
+        B = np.zeros((G,N))
+        for g in range(G):
+            v1 = Z[g,:]==1
+            v2 = Z[g,:]==0
+            Ng = np.sum(v1)
+            Nh = np.sum(v2)
+            B[g,v1] = (G-1)/Ng
+            B[g,v2] = -1/Nh
+            
+        bias_penalty = (B.T @ B) @ Theta
+           
+    return bias_penalty
+        
 
-def prox_grad_step_(C_hat, Theta, B_TB, lamb, eta, epsilon):
-    Soft_thresh = lambda Z, alpha: np.maximum(np.abs(Z) - alpha, 0)*np.sign(Z)
+def prox_grad_step_(C_hat, Theta, Z, beta, lamb, eta, epsilon, bias_type):
+    Soft_thresh = lambda R, alpha: np.maximum(np.abs(R) - alpha, 0)*np.sign(R)
     N = C_hat.shape[0]
 
+    fairness_term = fairness_penalty(Theta, Z, bias_type)
     # Gradient step + soft-thresholding
-    Gradient = C_hat - la.inv(Theta + epsilon*np.eye(N)) + B_TB @ Theta
+    Gradient = C_hat - la.inv(Theta + epsilon*np.eye(N)) + beta*fairness_term
     Theta_aux = Soft_thresh(Theta - eta*Gradient, eta*lamb)
     Theta_aux = (Theta_aux + Theta_aux.T)/2
     
@@ -77,7 +108,7 @@ def node_FGL_ppgd(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=None
     return Theta_next, errs_A
 
 
-def node_FGL_fista(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=None):
+def node_FGL_fista(C_hat, lamb, eta, beta, Z, bias_type, epsilon=.1, iters=1000, A_true=None):
     """
     Solve a graphical lasso problem with node fairness regularization using the FISTA algorithm.
 
@@ -117,9 +148,6 @@ def node_FGL_fista(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=Non
     Theta_fista = np.eye(N)
     t_k = 1
 
-    # Precompute B^T*B for efficiency
-    B_TB = beta * B.T @ B
-
     # Initialize array to store errors in precision matrix estimation
     errs_A = np.zeros(iters)
 
@@ -129,7 +157,7 @@ def node_FGL_fista(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=Non
         norm_Theta_true = la.norm(Theta_non_diag)
 
     for i in range(iters):
-        Theta_k = prox_grad_step_(C_hat, Theta_fista, B_TB, lamb, eta, epsilon)
+        Theta_k = prox_grad_step_(C_hat, Theta_fista, Z, beta, lamb, eta, epsilon, bias_type)
         t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
         Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
 
@@ -141,7 +169,10 @@ def node_FGL_fista(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=Non
         if A_true is not None:
             errs_A[i] = (la.norm(Theta_non_diag - Theta_k[~np.eye(N, dtype=bool)])/norm_Theta_true)**2
 
-    return Theta_k, errs_A
+    np.fill_diagonal(Theta_k,0)
+    Theta_k = np.abs(Theta_k)
+    return Theta_k #, errs_A
+
 
 def GSR_reweighted(C,
                    alpha=.1,
