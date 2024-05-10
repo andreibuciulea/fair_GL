@@ -271,5 +271,7 @@ def compute_frob_error(A_est,A):
 def compute_f1_score(A_est,A):
     A_est = A_est/( np.max(A_est) + int(np.max(A_est)==0) )
     A = A/( np.max(A) + int(np.max(A)==0) )
+    A_est = np.where(A_est > 0, 1,0)
+    A = np.where(A > 0, 1,0)
     return f1_score( A.flatten(), A_est.flatten() )
 

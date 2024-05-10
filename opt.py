@@ -5,31 +5,35 @@ import mosek
 from numpy import linalg as la
 
 # ---------------------
-def fairness_penalty(Theta, Z, bias_type)
+def grad_fairness_penalty(Theta, Z, bias_type):
     G,N = Z.shape
+    np.fill_diagonal(Theta,0)
+    bias_penalty = np.zeros((N,N))
     if bias_type=='dp':
         B = np.zeros((N,N))
         for g in range(G):
+            zg = Z[g,:]==1
+            Ng = np.sum(zg)
+            cg = Ng**2-Ng
             for h in range(G):
                 if h != g:
-                    zg = Z[g,:]==1
                     zh = Z[h,:]==1
-                    Ng = np.sum(zg)
                     Nh = np.sum(zh)
-                    cg = Ng**2-Ng
                     cgh = Ng*Nh
                     Cgh = cgh*np.outer(zg,zg.T) - cg*np.outer(zh,zg.T)
-                    B += 1/(cg*cgh)*np.trace(Theta@Cgh)*Cgh.T 
+                    B += 1/((cg*cgh)**2)*np.trace(Theta@Cgh)*Cgh.T 
         bias_penalty = B
     elif bias_type=='nodewise':
         B = np.zeros((G,N))
         for g in range(G):
-            v1 = Z[g,:]==1
-            v2 = Z[g,:]==0
-            Ng = np.sum(v1)
-            Nh = np.sum(v2)
-            B[g,v1] = (G-1)/Ng
-            B[g,v2] = -1/Nh
+            vg = Z[g,:]==1
+            Ng = np.sum(vg)
+            B[g,vg] = (G-1)/Ng
+            for h in range(G):
+                if h != g: 
+                    vh = Z[h,:]==1
+                    Nh = np.sum(vh)
+                    B[g,vh] = -1/Nh
             
         bias_penalty = (B.T @ B) @ Theta
            
@@ -40,10 +44,11 @@ def prox_grad_step_(C_hat, Theta, Z, beta, lamb, eta, epsilon, bias_type):
     Soft_thresh = lambda R, alpha: np.maximum(np.abs(R) - alpha, 0)*np.sign(R)
     N = C_hat.shape[0]
 
-    fairness_term = fairness_penalty(Theta, Z, bias_type)
+    fairness_term = grad_fairness_penalty(Theta, Z, bias_type)
     # Gradient step + soft-thresholding
     Gradient = C_hat - la.inv(Theta + epsilon*np.eye(N)) + beta*fairness_term
-    Theta_aux = Soft_thresh(Theta - eta*Gradient, eta*lamb)
+    Theta_aux = Theta - eta*Gradient
+    Theta_aux[np.eye(N)==0] = Soft_thresh(Theta_aux[np.eye(N)==0], eta*lamb)
     Theta_aux = (Theta_aux + Theta_aux.T)/2
     
     # Projection 
@@ -142,6 +147,7 @@ def node_FGL_fista(C_hat, lamb, eta, beta, Z, bias_type, epsilon=.1, iters=1000,
     ------
     FISTA (Fast Iterative Shrinkage-Thresholding Algorithm) implementation with the second demographic parity penalty.
     """
+    
     N = C_hat.shape[0]
     # Ensure Theta_current is initialized to an invertible matrix
     Theta_prev = np.eye(N)
