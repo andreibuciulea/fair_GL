@@ -186,6 +186,15 @@ def create_gmrf_cov(A):
     C = np.linalg.inv(C_inv)
     return C
 
+def create_mtp2_cov(A):
+    (p,p) = A.shape
+    eigvals = np.linalg.eigh(A)[0]
+    Theta = 2*(.01 - eigvals.min())*np.eye(p) - lowtri2mat( mat2lowtri(A) * ( .9 + .1*np.random.rand(kchoose2(p)) ) )
+    while np.min(np.linalg.eigh(Theta)[0]) < 0:
+        Theta[np.eye(p)==1] = np.diag(Theta) * 1.01
+    Sigma = np.linalg.inv(Theta)
+    return Sigma, Theta
+
 def poly_samples(H, M:int=None):
     (N,N) = H.shape
     if M is None:
@@ -206,6 +215,50 @@ def est_cov(X):
     return C_est
 
 # ---------------------------
+
+def compute_dp2(Theta,Z):
+    (g,p) = Z.shape
+    p_grp = Z.sum(axis=1)
+    Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+               ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
+                np.zeros_like(Theta) for b in range(g)] for a in range(g)]
+    dp = (1/(g*(g-1))) * np.sum( [ np.sum( Z_til[a][b] * Theta )**2 
+                                   for a in range(g) for b in np.delete(np.arange(g),a)] )
+    return dp
+
+def compute_dp1(Theta,Z):
+    (g,p) = Z.shape
+    p_grp = Z.sum(axis=1)
+    Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+               ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
+                np.zeros_like(Theta) for b in range(g)] for a in range(g)]
+    dp = (1/(g*(g-1))) * np.sum( [ np.abs(np.sum( Z_til[a][b] * Theta ))
+                                   for a in range(g) for b in np.delete(np.arange(g),a)] )
+    return dp
+
+def compute_nodedp2(Theta,Z):
+    (g,p) = Z.shape
+    p_grp = Z.sum(axis=1)
+    Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+                      np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
+                      np.zeros_like(Theta) for b in range(g)],axis=0)
+            for i in range(p)] for a in range(g)]
+    dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
+        np.sum( Z_til[a][i] * Theta )**2
+        for a in range(g) for i in range(p) ] )
+    return dp
+
+def compute_nodedp1(Theta,Z):
+    (g,p) = Z.shape
+    p_grp = Z.sum(axis=1)
+    Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+                      np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
+                      np.zeros_like(Theta) for b in range(g)],axis=0)
+            for i in range(p)] for a in range(g)]
+    dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
+        np.abs( np.sum( Z_til[a][i] * Theta ) )
+        for a in range(g) for i in range(p) ] )
+    return dp
 
 def compute_bias(A,Z,bias_type:str='weighted_dp'):
     assert A.shape[0]==A.shape[1], 'Invalid adjacency matrix.'
@@ -263,15 +316,21 @@ def compute_tpcc(X1,x2):
     assert X1.ndim==2, 'Invalid data matrix.'
     return np.mean([np.abs(compute_pcc(x1,x2)) for x1 in X1.T])
 
-def compute_frob_error(A_est,A):
-    A_est_norm = A_est/np.linalg.norm(A_est,'fro') if np.linalg.norm(A_est,'fro') else np.zeros_like(A_est)
-    A_norm = A/np.linalg.norm(A,'fro') if np.linalg.norm(A,'fro') else np.zeros_like(A_est)
-    return np.linalg.norm(A_norm-A_est_norm,'fro')**2/2
+def compute_inv_err(Theta_hat, Sigma):
+    (p,p) = Theta_hat.shape
+    return np.linalg.norm( Theta_hat@Sigma - np.eye(p), 'fro' )**2
 
-def compute_f1_score(A_est,A):
-    A_est = A_est/( np.max(A_est) + int(np.max(A_est)==0) )
-    A = A/( np.max(A) + int(np.max(A)==0) )
-    A_est = np.where(A_est > 0, 1,0)
-    A = np.where(A > 0, 1,0)
-    return f1_score( A.flatten(), A_est.flatten() )
+def compute_frob_err(Theta_hat, Theta):
+    norm_Theta = np.linalg.norm(Theta,'fro') if np.linalg.norm(Theta,'fro') else 1
+    return (np.linalg.norm( Theta_hat - Theta, 'fro' )/norm_Theta)**2
+    # Theta_hat_norm = Theta_hat / np.linalg.norm( Theta_hat, 'fro' ) if np.linalg.norm( Theta_hat,'fro' ) else np.zeros_like(Theta_hat)
+    # Theta_norm = Theta / np.linalg.norm( Theta, 'fro' ) if np.linalg.norm( Theta,'fro' ) else np.zeros_like(Theta)
+    # return np.linalg.norm( Theta_norm - Theta_hat_norm, 'fro' )**2/2
+
+def compute_f1_score(Theta_hat, Theta, eps_thresh=.1):
+    Theta_hat = Theta_hat / ( Theta_hat.max() + int(Theta_hat.max()==0) )
+    Theta_hat = ( np.abs(Theta_hat)>eps_thresh ).astype(int)
+    Theta = Theta / ( Theta.max() + int(Theta.max()==0) )
+    Theta = ( np.abs(Theta)>eps_thresh ).astype(int)
+    return f1_score( Theta_hat.flatten(), Theta.flatten() )
 
