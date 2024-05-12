@@ -190,7 +190,7 @@ def create_mtp2_cov(A):
     (p,p) = A.shape
     eigvals = np.linalg.eigh(A)[0]
     Theta = 2*(.01 - eigvals.min())*np.eye(p) - lowtri2mat( mat2lowtri(A) * ( .9 + .1*np.random.rand(kchoose2(p)) ) )
-    while np.min(np.linalg.eigh(Theta)[0]) < 0:
+    while np.min(np.linalg.eigvalsh(Theta)[0]) < 0:
         Theta[np.eye(p)==1] = np.diag(Theta) * 1.01
     Sigma = np.linalg.inv(Theta)
     return Sigma, Theta
@@ -219,45 +219,67 @@ def est_cov(X):
 def compute_dp2(Theta,Z):
     (g,p) = Z.shape
     p_grp = Z.sum(axis=1)
-    Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
-               ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
-                np.zeros_like(Theta) for b in range(g)] for a in range(g)]
-    dp = (1/(g*(g-1))) * np.sum( [ np.sum( Z_til[a][b] * Theta )**2 
+    Z_til = lambda a,b: ( ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+                          ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) 
+                          if a!=b else np.zeros_like(Theta) )
+    dp = (1/(g*(g-1))) * np.sum( [ np.sum( Z_til(a,b) * Theta )**2 
                                    for a in range(g) for b in np.delete(np.arange(g),a)] )
+    # Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+    #            ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
+    #             np.zeros_like(Theta) for b in range(g)] for a in range(g)]
+    # dp = (1/(g*(g-1))) * np.sum( [ np.sum( Z_til[a][b] * Theta )**2 
+    #                                for a in range(g) for b in np.delete(np.arange(g),a)] )
     return dp
 
 def compute_dp1(Theta,Z):
     (g,p) = Z.shape
     p_grp = Z.sum(axis=1)
-    Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
-               ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
-                np.zeros_like(Theta) for b in range(g)] for a in range(g)]
-    dp = (1/(g*(g-1))) * np.sum( [ np.abs(np.sum( Z_til[a][b] * Theta ))
+    Z_til = lambda a,b: ( ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+                          ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) 
+                          if a!=b else np.zeros_like(Theta) )
+    dp = (1/(g*(g-1))) * np.sum( [ np.abs (np.sum( Z_til(a,b) * Theta ) )
                                    for a in range(g) for b in np.delete(np.arange(g),a)] )
+    # Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+    #            ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
+    #             np.zeros_like(Theta) for b in range(g)] for a in range(g)]
+    # dp = (1/(g*(g-1))) * np.sum( [ np.abs(np.sum( Z_til[a][b] * Theta ))
+    #                                for a in range(g) for b in np.delete(np.arange(g),a)] )
     return dp
 
 def compute_nodedp2(Theta,Z):
     (g,p) = Z.shape
     p_grp = Z.sum(axis=1)
-    Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
-                      np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
-                      np.zeros_like(Theta) for b in range(g)],axis=0)
-            for i in range(p)] for a in range(g)]
+    Z_til = lambda a,i: np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+                                np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] 
+                                if a!=b else np.zeros_like(Theta) for b in range(g)],axis=0)
     dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
-        np.sum( Z_til[a][i] * Theta )**2
+        np.sum( Z_til(a,i) * Theta )**2
         for a in range(g) for i in range(p) ] )
+    # Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+    #                   np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
+    #                   np.zeros_like(Theta) for b in range(g)],axis=0)
+    #         for i in range(p)] for a in range(g)]
+    # dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
+    #     np.sum( Z_til[a][i] * Theta )**2
+    #     for a in range(g) for i in range(p) ] )
     return dp
 
 def compute_nodedp1(Theta,Z):
     (g,p) = Z.shape
     p_grp = Z.sum(axis=1)
-    Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
-                      np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
-                      np.zeros_like(Theta) for b in range(g)],axis=0)
-            for i in range(p)] for a in range(g)]
+    Z_til = lambda a,i: np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+                                np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] 
+                                if a!=b else np.zeros_like(Theta) for b in range(g)],axis=0)
     dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
-        np.abs( np.sum( Z_til[a][i] * Theta ) )
+        np.abs( np.sum( Z_til(a,i) * Theta ) )
         for a in range(g) for i in range(p) ] )
+    # Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+    #                   np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
+    #                   np.zeros_like(Theta) for b in range(g)],axis=0)
+    #         for i in range(p)] for a in range(g)]
+    # dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
+    #     np.abs( np.sum( Z_til[a][i] * Theta ) )
+    #     for a in range(g) for i in range(p) ] )
     return dp
 
 def compute_bias(A,Z,bias_type:str='weighted_dp'):

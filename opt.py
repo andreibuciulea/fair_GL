@@ -10,23 +10,17 @@ def grad_fairness_penalty(Theta, Z, bias_type):
     p_grp = Z.sum(axis=1)
 
     if bias_type=='dp':
-        mask_Z = [[ (Z[a][:,None]*Z[b][None]) * (1-np.eye(p))
-                    for b in range(g)] 
-                    for a in range(g)]
-        Z_til = [[ mask_Z[a][a]/(p_grp[a]*(p_grp[a]-1)) - 
-                   mask_Z[a][b]/(p_grp[a]*p_grp[b]) if a!=b else
-                   np.zeros_like(Theta) for b in range(g)] for a in range(g)]
+        Z_til = lambda a,b: (((Z[a][:,None]*Z[a][None]) * (1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+                             ((Z[a][:,None]*Z[b][None]) * (1-np.eye(p)))/(p_grp[a]*p_grp[b]))
         dp_grad = (2/(g*(g-1))) * np.sum([
-                np.sum( Z_til[a][b] * Theta ) * Z_til[a][b].T
+                np.sum( Z_til(a,b) * Theta ) * Z_til(a,b).T
                 for a in range(g) for b in np.delete(np.arange(g),a) ], axis=0)
     elif bias_type=='nodewise':
-        mask_Z = [[np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None] 
-                   for i in range(p)] for a in range(g)]
-        Z_til = [[np.sum([mask_Z[a][i]/p_grp[a] - mask_Z[b][i]/p_grp[b] 
-                        if a!=b else np.zeros_like(Theta) for b in range(g)],axis=0)
-                  for i in range(p)] for a in range(g)]
+        Z_til = lambda a,i: np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+                                    np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] 
+                                    if a!=b else np.zeros_like(Theta) for b in range(g)],axis=0)
         dp_grad = 2/(g*p*(g-1)**2) * np.sum([
-            np.sum( (Z_til[a][i])*Theta ) * Z_til[a][i].T
+            np.sum( (Z_til(a,i))*Theta ) * Z_til(a,i).T
             for a in range(g) for i in range(p)], axis=0)
     return dp_grad
 
@@ -166,19 +160,19 @@ def node_FGL_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000, E
         t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
         Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
 
-        # Update values for next iteration
-        Theta_prev = Theta_k
-        t_k = t_next
-
         # Calculate error in precision matrix if A_true is provided
         if A_true is not None:
             errs_A[i] = (
                 np.linalg.norm( Theta_non_diag - Theta_k[~np.eye(p, dtype=bool)] )/norm_Theta_true
             )**2
         
-        if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < 1e-4:
-            print('Stopping early')
+        if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < 1e-6:
+            # print('Stopping early')
             break
+
+        # Update values for next iteration
+        Theta_prev = Theta_k
+        t_k = t_next
 
     # np.fill_diagonal(Theta_k,0)
     # Theta_k = np.abs(Theta_k)
@@ -189,14 +183,20 @@ def FairGLASSO_cvx( Sigma, Z, mu1=.1, mu2=1, epsilon=.1, bias_type='dp'):
     p_grp = Z.sum(axis=1)
 
     if bias_type=='dp':
-        Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
-                    ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
-                    np.zeros((p,p)) for b in range(g)] for a in range(g)]
+        Z_til = lambda a,b: ( ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+                              ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) 
+                              if a!=b else np.zeros((p,p)) )
+        # Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+        #             ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
+        #             np.zeros((p,p)) for b in range(g)] for a in range(g)]
     elif bias_type=='nodewise':
-        Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
-                        np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
-                        np.zeros((p,p)) for b in range(g)],axis=0)
-                for i in range(p)] for a in range(g)]
+        Z_til = lambda a,i: np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+                                    np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
+                                    np.zeros((p,p)) for b in range(g)],axis=0)
+        # Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+        #                 np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
+        #                 np.zeros((p,p)) for b in range(g)],axis=0)
+        #         for i in range(p)] for a in range(g)]
     else:
         print('Invalid bias type.')
 
@@ -206,11 +206,15 @@ def FairGLASSO_cvx( Sigma, Z, mu1=.1, mu2=1, epsilon=.1, bias_type='dp'):
     non_diag = ~np.eye(p, dtype=bool)
     
     if bias_type=='dp':
-        dp = (1/(g*(g-1))) * cp.sum( [ cp.sum( cp.multiply( Z_til[a][b], Theta_hat ) )**2
+        # dp = (1/(g*(g-1))) * cp.sum( [ cp.sum( cp.multiply( Z_til[a][b], Theta_hat ) )**2
+        #                             for a in range(g) for b in np.delete(np.arange(g),a)] )
+        dp = (1/(g*(g-1))) * cp.sum( [ cp.sum( cp.multiply( Z_til(a,b), Theta_hat ) )**2
                                     for a in range(g) for b in np.delete(np.arange(g),a)] )
     elif bias_type=='nodewise':
-        dp = (1/(p*g*(g-1)**2)) * cp.sum( [ cp.sum( cp.multiply( Z_til[a][i], Theta_hat ) )**2
+        dp = (1/(p*g*(g-1)**2)) * cp.sum( [ cp.sum( cp.multiply( Z_til(a,i), Theta_hat ) )**2
                                             for a in range(g) for i in range(p) ] )
+        # dp = (1/(p*g*(g-1)**2)) * cp.sum( [ cp.sum( cp.multiply( Z_til[a][i], Theta_hat ) )**2
+        #                                     for a in range(g) for i in range(p) ] )
     else:
         print('Invalid bias type.')
 
