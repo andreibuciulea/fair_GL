@@ -356,3 +356,17 @@ def compute_f1_score(Theta_hat, Theta, eps_thresh=.1):
     Theta = ( np.abs(Theta)>eps_thresh ).astype(int)
     return f1_score( Theta_hat.flatten(), Theta.flatten() )
 
+def compute_B_from_Z(Z):
+    B = np.zeros_like(Z)
+    g, p = Z.shape
+    nodes_per_group = Z.sum(axis=1)
+
+    for i in range(p):
+        # One hot encoding of the group of node j
+        groups_i = Z[:,i] > 0
+        # Normalization made with the nodes in the group of node i
+        nodes_in_group = nodes_per_group[groups_i]
+        B[:,i] = -1/nodes_in_group
+        B[groups_i,i] = (g-1)/nodes_in_group
+
+    return B
