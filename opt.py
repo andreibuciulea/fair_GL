@@ -25,7 +25,7 @@ def grad_fairness_penalty(Theta, Z, bias_type, precomputed):
         if precomputed:
             Theta_aux = Theta
             # Theta_aux[np.eye(p) == 1] = 0
-            dp_grad = Z @ Theta_aux
+            dp_grad =  (Z @ Theta_aux) / p / g / (g-1)**2
             dp_grad[np.eye(p) == 1] = 0
         
         else:
@@ -174,8 +174,9 @@ def node_FGL_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000, p
 
     if bias_type == 'nodewise' and precomputed:
         # Precompute element involved in gradient for efficiency
-        Z = compute_B_from_Z(Z)
-        Z = Z.T @ Z
+        # Z = compute_B_from_Z(Z)
+        # Z = Z.T @ Z
+        Z = compute_B_from_Z_v2(Z)
 
     # Compute the norm of non-diagonal elements of A_true for error calculation
     if A_true is not None:
