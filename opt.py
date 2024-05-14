@@ -9,124 +9,8 @@ from numpy import linalg as la
 INVALID_BIAS = 'Invalid bias type'
 
 
-# ---------------------
-def grad_fairness_penalty(Theta, Z, bias_type, precomputed):
-    g,p = Z.shape
-    p_grp = Z.sum(axis=1)
-
-    if bias_type =='dp':
-        Z_til = lambda a,b: (((Z[a][:,None]*Z[a][None]) * (1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
-                             ((Z[a][:,None]*Z[b][None]) * (1-np.eye(p)))/(p_grp[a]*p_grp[b]))
-        dp_grad = (2/(g*(g-1))) * np.sum([
-                np.sum( Z_til(a,b) * Theta ) * Z_til(a,b).T
-                for a in range(g) for b in np.delete(np.arange(g),a) ], axis=0)
-        
-    elif bias_type =='nodewise':
-        if precomputed:
-            Theta_aux = Theta
-            # Theta_aux[np.eye(p) == 1] = 0
-            dp_grad =  (Z @ Theta_aux) / p / g / (g-1)**2
-            dp_grad[np.eye(p) == 1] = 0
-        
-        else:
-            Z_til = lambda a,i: np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
-                                        np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] 
-                                        if a!=b else np.zeros_like(Theta) for b in range(g)],axis=0)
-            dp_grad = 2/(g*p*(g-1)**2) * np.sum([
-                np.sum( (Z_til(a,i))*Theta ) * Z_til(a,i).T
-                for a in range(g) for i in range(p)], axis=0)
-        
-        
-
-    else:
-        raise ValueError(INVALID_BIAS)
-    return dp_grad
-
-
-def prox_grad_step_(Sigma, Theta, Z, mu2, mu1, eta, epsilon, bias_type, prec_type, precomputed):
-    Soft_thresh = lambda R, alpha: np.maximum( np.abs(R)-alpha, 0 ) * np.sign(R)
-    p = Sigma.shape[0]
-
-    # Gradient step + soft-thresholding
-    fairness_term = grad_fairness_penalty(Theta, Z, bias_type, precomputed) if mu2 != 0 else 0
-    Gradient = Sigma - np.linalg.inv( Theta + epsilon*np.eye(p) ) + mu2*fairness_term
-    Theta_aux = Theta - eta*Gradient
-    Theta_aux[np.eye(p)==0] = Soft_thresh( Theta_aux[np.eye(p)==0], eta*mu1 )
-    Theta_aux = (Theta_aux + Theta_aux.T)/2
-
-    # Projection
-    if prec_type == 'non-negative':
-        # Projection onto non-negative matrices
-        Theta_aux[(Theta_aux <= 0)*(np.eye(p) == 0)] = 0
-    elif prec_type == 'non-positive':
-        # Projection onto non-positive matrices
-        Theta_aux[(Theta_aux >= 0)*(np.eye(p)==0)] = 0
-
-    # Second projection onto PSD set
-    eigenvals, eigenvecs = np.linalg.eigh( Theta_aux )
-    eigenvals[eigenvals < 0] = 0
-    Theta_next = eigenvecs @ np.diag( eigenvals ) @ eigenvecs.T
-
-    return Theta_next
-
-def node_FGL_ppgd(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=None):
-    """
-    Solve a graphical lasso problem with node fairness regularization using Projected Proximal Gradient Descent (PPGD).
-
-    Parameters:
-    -----------
-    C_hat : numpy.ndarray
-        Sample covariance matrix.
-    lamb : float
-        Weight for the l1 norm.
-    eta : float
-        Step size.
-    beta : float
-        Weight for the fairness penalty.
-    B : numpy.ndarray
-        Matrix of sensitive attributes for the fairness penalty.
-    epsilon : float, optional
-        Small constant to load the diagonal of the estimated Theta to ensure strict positivity (default is 0.1).
-    iters : int, optional
-        Number of iterations (default is 1000).
-    A_true : numpy.ndarray or None, optional
-        True precision matrix to keep track of the error (default is None).
-
-    Returns:
-    --------
-    Theta_next : numpy.ndarray
-        Estimated precision matrix.
-    errs_A : numpy.ndarray
-        Array of errors in precision matrix estimation over iterations (if A_true is provided).
-
-    Notes:
-    ------
-    Projected Proximal Gradient Descent (PPGD) implementation with the second demographic parity penalty.
-    """
-    N = C_hat.shape[0]
-    # Initialize Theta_k to an invertible matrix
-    Theta_k = np.eye(N)
-    bias_type = "nodewise"
-    # Precompute B^T*B for efficiency
-    B_TB = beta * B.T @ B
-
-    errs_A = np.zeros(iters)
-    if A_true is not None:
-        Theta_non_diag = A_true[~np.eye(N, dtype=bool)]
-        norm_Theta_true = la.norm(Theta_non_diag)
-
-    for i in range(iters):
-        Theta_next = prox_grad_step_(C_hat, Theta_k, B_TB, lamb, eta, epsilon, bias_type)
-        Theta_k = Theta_next
-
-        if A_true is not None:
-            errs_A[i] = (la.norm(Theta_non_diag - Theta_k[~np.eye(N, dtype=bool)])/norm_Theta_true)**2
-
-    return Theta_next, errs_A
-
-
-def node_FGL_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000, precomputed=True,
-                   prec_type=None, EARLY_STOP=False, A_true=None, tol=1e-6):
+def FairGLASSO_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000,
+                     prec_type=None, EARLY_STOP=False, RETURN_ITERS=False):
     """
     Solve a graphical lasso problem with node fairness regularization using the FISTA algorithm.
 
@@ -162,50 +46,267 @@ def node_FGL_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000, p
     ------
     FISTA (Fast Iterative Shrinkage-Thresholding Algorithm) implementation with the second demographic parity penalty.
     """
-    
-    p = Sigma.shape[0]
+
+    _,p = Z.shape
     # Ensure Theta_current is initialized to an invertible matrix
     Theta_prev = np.eye(p)
     Theta_fista = np.eye(p)
     t_k = 1
 
-    # Initialize array to store errors in precision matrix estimation
-    errs_A = np.zeros(iters)
+    # Precompute fairness penalty matrix
+    B = compute_bias_matrix_(Z, bias_type)
 
-    if bias_type == 'nodewise' and precomputed:
-        # Precompute element involved in gradient for efficiency
-        # Z = compute_B_from_Z(Z)
-        # Z = Z.T @ Z
-        Z = compute_B_from_Z_v2(Z)
+    # Initialize array to store iterations to check convergence
+    if RETURN_ITERS:
+        norm_iters = []
 
-    # Compute the norm of non-diagonal elements of A_true for error calculation
-    if A_true is not None:
-        Theta_non_diag = A_true[~np.eye(p, dtype=bool)]
-        norm_Theta_true = la.norm(Theta_non_diag)
-
-    for i in range(iters):
-        Theta_k = prox_grad_step_( Sigma, Theta_fista, Z, mu2, mu1, eta, epsilon, bias_type,
-                                  prec_type, precomputed )
+    for _ in range(iters):
+        Theta_k = prox_grad_step_( Sigma, Theta_fista, B, mu2, mu1, eta, epsilon, bias_type, prec_type )
         t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
         Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
-
-        # Calculate error in precision matrix if A_true is provided
-        if A_true is not None:
-            errs_A[i] = (
-                np.linalg.norm( Theta_non_diag - Theta_k[~np.eye(p, dtype=bool)] )/norm_Theta_true
-            )**2
         
-        if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < tol:
+        if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < 1e-3:
             break
 
         # Update values for next iteration
+        if RETURN_ITERS:
+            norm_iters.append( np.linalg.norm(Theta_prev-Theta_k,'fro') )
+
         Theta_prev = Theta_k
         t_k = t_next
 
-    if A_true is not None:
-        return Theta_k, errs_A
+    if RETURN_ITERS:
+        return Theta_k, norm_iters
     
     return Theta_k
+
+
+def compute_bias_matrix_(Z, bias_type):
+    g,p = Z.shape
+    p_grp = Z.sum(axis=1)
+    if bias_type=='dp':
+        B = [[ ((Z[a][:,None]*Z[a][None]) * (1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+               ((Z[a][:,None]*Z[b][None]) * (1-np.eye(p)))/(p_grp[a]*p_grp[b])
+               if a!=b else np.zeros((p,p))
+               for b in np.arange(g)] for a in range(g)]
+
+    elif bias_type=='nodewise':
+        Zab = [np.sum([Z[a]/p_grp[a]-Z[b]/p_grp[b] for b in np.delete(np.arange(g),a)],axis=0) for a in range(g)]
+        B = [Zab[a][:,None]*Zab[a][None] for a in range(g)]
+
+    else:
+        raise ValueError(INVALID_BIAS)
+
+    return B
+
+def grad_fairness_penalty_(Theta, B, bias_type):
+    p = Theta.shape[0]
+    g = len(B)
+    if bias_type == 'dp':
+        return (2/(g*(g-1))) * np.sum([ np.sum( B[a][b] * Theta ) * B[a][b].T for a in range(g) for b in np.delete(np.arange(g),a) ], axis=0)
+    if bias_type == 'nodewise':
+        return (2/(p*g*(g-1)**2))*(np.sum(B,axis=0)@(Theta*(1-np.eye(p))))*(1-np.eye(p))
+
+
+def prox_grad_step_(Sigma, Theta, Z, mu2, mu1, eta, epsilon, bias_type, prec_type):
+    Soft_thresh = lambda R, alpha: np.maximum( np.abs(R)-alpha, 0 ) * np.sign(R)
+    p = Sigma.shape[0]
+
+    # Gradient step + soft-thresholding
+    fairness_term = grad_fairness_penalty_(Theta, Z, bias_type) if mu2 != 0 else 0
+    Gradient = Sigma - la.inv( Theta + epsilon*np.eye(p) ) + mu2*fairness_term
+    Theta_aux = Theta - eta*Gradient
+    Theta_aux[np.eye(p)==0] = Soft_thresh( Theta_aux[np.eye(p)==0], eta*mu1 )
+    Theta_aux = (Theta_aux + Theta_aux.T)/2
+
+    # Projection
+    if prec_type == 'non-negative':
+        # Projection onto non-negative matrices
+        Theta_aux[(Theta_aux <= 0)*(np.eye(p) == 0)] = 0
+    elif prec_type == 'non-positive':
+        # Projection onto non-positive matrices
+        Theta_aux[(Theta_aux >= 0)*(np.eye(p)==0)] = 0
+
+    # Second projection onto PSD set
+    eigenvals, eigenvecs = np.linalg.eigh( Theta_aux )
+    eigenvals[eigenvals < 0] = 0
+    Theta_next = eigenvecs @ np.diag( eigenvals ) @ eigenvecs.T
+
+    return Theta_next
+
+
+
+# ---------------------
+# TODO: REMOVE
+# def grad_fairness_penalty(Theta, Z, bias_type, precomputed):
+#     g,p = Z.shape
+#     p_grp = Z.sum(axis=1)
+
+#     if bias_type =='dp':
+#         Z_til = lambda a,b: (((Z[a][:,None]*Z[a][None]) * (1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
+#                              ((Z[a][:,None]*Z[b][None]) * (1-np.eye(p)))/(p_grp[a]*p_grp[b]))
+#         dp_grad = (2/(g*(g-1))) * np.sum([
+#                 np.sum( Z_til(a,b) * Theta ) * Z_til(a,b).T
+#                 for a in range(g) for b in np.delete(np.arange(g),a) ], axis=0)
+        
+#     elif bias_type =='nodewise':
+#         if precomputed:
+#             # dp_grad =  (Z @ Theta*(1-np.eye(p)))*(1-np.eye(p)) / p / g / (g-1)**2
+#             Theta_aux = Theta
+#             Theta_aux[np.eye(p) == 1] = 0
+#             dp_grad =  (Z @ Theta_aux) / p / g / (g-1)**2
+#             dp_grad[np.eye(p) == 1] = 0
+#         else:
+#             Z_til = lambda a,i: np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
+#                                         np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] 
+#                                         if a!=b else np.zeros_like(Theta) for b in range(g)],axis=0)
+#             dp_grad = 2/(g*p*(g-1)**2) * np.sum([
+#                 np.sum( (Z_til(a,i))*Theta ) * Z_til(a,i).T
+#                 for a in range(g) for i in range(p)], axis=0)
+
+#     else:
+#         raise ValueError(INVALID_BIAS)
+#     return dp_grad
+
+# TODO: REMOVE
+# def node_FGL_ppgd(C_hat, lamb, eta, beta, B, epsilon=.1, iters=1000, A_true=None):
+#     """
+#     Solve a graphical lasso problem with node fairness regularization using Projected Proximal Gradient Descent (PPGD).
+
+#     Parameters:
+#     -----------
+#     C_hat : numpy.ndarray
+#         Sample covariance matrix.
+#     lamb : float
+#         Weight for the l1 norm.
+#     eta : float
+#         Step size.
+#     beta : float
+#         Weight for the fairness penalty.
+#     B : numpy.ndarray
+#         Matrix of sensitive attributes for the fairness penalty.
+#     epsilon : float, optional
+#         Small constant to load the diagonal of the estimated Theta to ensure strict positivity (default is 0.1).
+#     iters : int, optional
+#         Number of iterations (default is 1000).
+#     A_true : numpy.ndarray or None, optional
+#         True precision matrix to keep track of the error (default is None).
+
+#     Returns:
+#     --------
+#     Theta_next : numpy.ndarray
+#         Estimated precision matrix.
+#     errs_A : numpy.ndarray
+#         Array of errors in precision matrix estimation over iterations (if A_true is provided).
+
+#     Notes:
+#     ------
+#     Projected Proximal Gradient Descent (PPGD) implementation with the second demographic parity penalty.
+#     """
+#     N = C_hat.shape[0]
+#     # Initialize Theta_k to an invertible matrix
+#     Theta_k = np.eye(N)
+#     bias_type = "nodewise"
+#     # Precompute B^T*B for efficiency
+#     B_TB = beta * B.T @ B
+
+#     errs_A = np.zeros(iters)
+#     if A_true is not None:
+#         Theta_non_diag = A_true[~np.eye(N, dtype=bool)]
+#         norm_Theta_true = la.norm(Theta_non_diag)
+
+#     for i in range(iters):
+#         Theta_next = prox_grad_step_(C_hat, Theta_k, B_TB, lamb, eta, epsilon, bias_type)
+#         Theta_k = Theta_next
+
+#         if A_true is not None:
+#             errs_A[i] = (la.norm(Theta_non_diag - Theta_k[~np.eye(N, dtype=bool)])/norm_Theta_true)**2
+
+#     return Theta_next, errs_A
+
+
+# TODO: REMOVE
+# def node_FGL_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000, precomputed=True,
+#                    prec_type=None, EARLY_STOP=False, A_true=None, tol=1e-6):
+#     """
+#     Solve a graphical lasso problem with node fairness regularization using the FISTA algorithm.
+
+#     Parameters:
+#     -----------
+#     Sigma : numpy.ndarray
+#         Sample covariance matrix.
+#     mu1 : float
+#         Weight for the l1 norm.
+#     eta : float
+#         Step size.
+#     mu2 : float
+#         Weight for the fairness penalty.
+#     Z : numpy.ndarray
+#         Matrix of sensitive attributes for the fairness penalty.
+#     epsilon : float, optional
+#         Small constant to load the diagonal of the estimated Theta to ensure strict positivity (default is 0.1).
+#     iters : int, optional
+#         Number of iterations (default is 1000).
+#     EARLY_STOP: bool, optional
+#         If True, end iterations when difference small enough.
+#     A_true : numpy.ndarray or None, optional
+#         True precision matrix to keep track of the error (default is None).
+
+#     Returns:
+#     --------
+#     Theta_k : numpy.ndarray
+#         Estimated precision matrix.
+#     errs_A : numpy.ndarray
+#         Array of errors in precision matrix estimation over iterations (if A_true is provided).
+
+#     Notes:
+#     ------
+#     FISTA (Fast Iterative Shrinkage-Thresholding Algorithm) implementation with the second demographic parity penalty.
+#     """
+    
+#     p = Sigma.shape[0]
+#     # Ensure Theta_current is initialized to an invertible matrix
+#     Theta_prev = np.eye(p)
+#     Theta_fista = np.eye(p)
+#     t_k = 1
+
+#     # Initialize array to store errors in precision matrix estimation
+#     errs_A = np.zeros(iters)
+
+#     if bias_type == 'nodewise' and precomputed:
+#         # Precompute element involved in gradient for efficiency
+#         # Z = compute_B_from_Z(Z)
+#         # Z = Z.T @ Z
+#         Z = compute_B_from_Z_v2(Z)
+
+#     # Compute the norm of non-diagonal elements of A_true for error calculation
+#     if A_true is not None:
+#         Theta_non_diag = A_true[~np.eye(p, dtype=bool)]
+#         norm_Theta_true = la.norm(Theta_non_diag)
+
+#     for i in range(iters):
+#         Theta_k = prox_grad_step_( Sigma, Theta_fista, Z, mu2, mu1, eta, epsilon, bias_type,
+#                                   prec_type, precomputed )
+#         t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
+#         Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
+
+#         # Calculate error in precision matrix if A_true is provided
+#         if A_true is not None:
+#             errs_A[i] = (
+#                 np.linalg.norm( Theta_non_diag - Theta_k[~np.eye(p, dtype=bool)] )/norm_Theta_true
+#             )**2
+        
+#         if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < tol:
+#             break
+
+#         # Update values for next iteration
+#         Theta_prev = Theta_k
+#         t_k = t_next
+
+#     if A_true is not None:
+#         return Theta_k, errs_A
+    
+#     return Theta_k
 
 def FairGLASSO_cvx(Sigma, Z, mu1=.1, mu2=1, epsilon=.1, bias_type='dp'):
     g,p = Z.shape
@@ -215,17 +316,10 @@ def FairGLASSO_cvx(Sigma, Z, mu1=.1, mu2=1, epsilon=.1, bias_type='dp'):
         Z_til = lambda a,b: ( ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
                               ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) 
                               if a!=b else np.zeros((p,p)) )
-        # Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
-        #             ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
-        #             np.zeros((p,p)) for b in range(g)] for a in range(g)]
     elif bias_type =='nodewise':
         Z_til = lambda a,i: np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
                                     np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
                                     np.zeros((p,p)) for b in range(g)],axis=0)
-        # Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
-        #                 np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
-        #                 np.zeros((p,p)) for b in range(g)],axis=0)
-        #         for i in range(p)] for a in range(g)]
     else:
         raise ValueError(INVALID_BIAS)
 
@@ -235,15 +329,11 @@ def FairGLASSO_cvx(Sigma, Z, mu1=.1, mu2=1, epsilon=.1, bias_type='dp'):
     non_diag = ~np.eye(p, dtype=bool)
     
     if bias_type =='dp':
-        # dp = (1/(g*(g-1))) * cp.sum( [ cp.sum( cp.multiply( Z_til[a][b], Theta_hat ) )**2
-        #                             for a in range(g) for b in np.delete(np.arange(g),a)] )
         dp = (1/(g*(g-1))) * cp.sum( [ cp.sum( cp.multiply( Z_til(a,b), Theta_hat ) )**2
                                     for a in range(g) for b in np.delete(np.arange(g),a)] )
     elif bias_type =='nodewise':
         dp = (1/(p*g*(g-1)**2)) * cp.sum( [ cp.sum( cp.multiply( Z_til(a,i), Theta_hat ) )**2
                                             for a in range(g) for i in range(p) ] )
-        # dp = (1/(p*g*(g-1)**2)) * cp.sum( [ cp.sum( cp.multiply( Z_til[a][i], Theta_hat ) )**2
-        #                                     for a in range(g) for i in range(p) ] )
     else:
         raise ValueError(INVALID_BIAS)
 
@@ -583,6 +673,8 @@ def FGSR(C,Z,
 
 # ---------------------
 
+
+# NOTE: Seems to be the same as FairGLASSO_cvx
 def FGLASSO(C,Z,
          alpha=.1,
          beta=1,

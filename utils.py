@@ -370,3 +370,29 @@ def compute_B_from_Z(Z):
         B[groups_i,i] = (g-1)/nodes_in_group
 
     return B
+
+
+
+
+# TODO: REMOVE
+# def compute_B_from_Z_v2(Z):
+#     g, p = Z.shape
+#     B = np.zeros((p,p))
+    
+#     nodes_per_group = Z.sum(axis=1)
+#     for a in range(g):
+#         p_a = nodes_per_group[Z[:,a] > 0]
+#         for b in range(g):
+#             p_b = nodes_per_group[Z[:,b] > 0]
+#             vector = Z[a,:].T/p_a - Z[b,:].T/p_b
+#             B = B + np.outer(vector, vector.T)
+
+#     # for i in range(p):
+#     #     # One hot encoding of the group of node j
+#     #     groups_i = Z[:,i] > 0
+#     #     # Normalization made with the nodes in the group of node i
+#     #     nodes_in_group = nodes_per_group[groups_i]
+#     #     B[:,i] = -1/nodes_in_group
+#     #     B[groups_i,i] = (g-1)/nodes_in_group
+
+#     return B
