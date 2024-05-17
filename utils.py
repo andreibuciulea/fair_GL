@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import linalg as la
 import matplotlib.pyplot as plt
 import commentjson as json
 import os
@@ -76,7 +77,7 @@ def madimshow(mat,cmap:str=madcmap,xlabel:str='',ylabel:str='',axis=True,figsize
 # ---------------------------
 
 def vec(X):
-    return np.linalg.vstack(X)
+    return la.vstack(X)
 
 def soft_thresh(z, lmbda):
     return np.maximum(np.abs(z) - lmbda, 0)*np.sign(z)
@@ -138,7 +139,7 @@ def generate_connected_er(N:int,edge_prob:float):
     assert edge_prob>=0 and edge_prob<=1, 'Invalid edge probability.'
     A = lowtri2mat(np.random.binomial(1,edge_prob,int(N*(N-1)/2)))
     L = np.diag(np.sum(A,axis=0)) - A
-    while np.sum(np.abs(np.linalg.eigh(L)[0])<1e-9)>1:
+    while np.sum(np.abs(la.eigh(L)[0])<1e-9)>1:
         A = lowtri2mat(np.random.binomial(1,edge_prob,int(N*(N-1)/2)))
         L = np.diag(np.sum(A,axis=0)) - A
     return A
@@ -168,8 +169,8 @@ def create_filter(A,L:int=3,h=None):
         L = len(h)
     else:
         h = np.random.rand(L)
-    h = h/np.linalg.norm(h,1)
-    H = np.sum([h[l]*np.linalg.matrix_power(A,l) for l in range(L)],axis=0)
+    h = h/la.norm(h,1)
+    H = np.sum([h[l]*la.matrix_power(A,l) for l in range(L)],axis=0)
     return H
 
 def create_poly_cov(A=None,H=None,L:int=3):
@@ -181,18 +182,18 @@ def create_poly_cov(A=None,H=None,L:int=3):
 
 def create_gmrf_cov(A):
     (N,N) = A.shape
-    eigvals = np.linalg.eigh(A)[0]
+    eigvals = la.eigh(A)[0]
     C_inv = (.01-eigvals.min())*np.eye(N) + (.9+.1*np.random.rand())*A
-    C = np.linalg.inv(C_inv)
+    C = la.inv(C_inv)
     return C
 
 def create_mtp2_cov(A):
     (p,p) = A.shape
-    eigvals = np.linalg.eigh(A)[0]
+    eigvals = la.eigh(A)[0]
     Theta = 2*(.01 - eigvals.min())*np.eye(p) - lowtri2mat( mat2lowtri(A) * ( .9 + .1*np.random.rand(kchoose2(p)) ) )
-    while np.min(np.linalg.eigvalsh(Theta)[0]) < 0:
+    while np.min(la.eigvalsh(Theta)[0]) < 0:
         Theta[np.eye(p)==1] = np.diag(Theta) * 1.01
-    Sigma = np.linalg.inv(Theta)
+    Sigma = la.inv(Theta)
     return Sigma, Theta
 
 def poly_samples(H, M:int=None):
@@ -340,14 +341,15 @@ def compute_tpcc(X1,x2):
 
 def compute_inv_err(Theta_hat, Sigma):
     (p,p) = Theta_hat.shape
-    return np.linalg.norm( Theta_hat@Sigma - np.eye(p), 'fro' )**2
+    return la.norm( Theta_hat@Sigma - np.eye(p), 'fro' )**2
 
-def compute_frob_err(Theta_hat, Theta):
-    norm_Theta = np.linalg.norm(Theta,'fro') if np.linalg.norm(Theta,'fro') else 1
-    return (np.linalg.norm( Theta_hat - Theta, 'fro' )/norm_Theta)**2
-    # Theta_hat_norm = Theta_hat / np.linalg.norm( Theta_hat, 'fro' ) if np.linalg.norm( Theta_hat,'fro' ) else np.zeros_like(Theta_hat)
-    # Theta_norm = Theta / np.linalg.norm( Theta, 'fro' ) if np.linalg.norm( Theta,'fro' ) else np.zeros_like(Theta)
-    # return np.linalg.norm( Theta_norm - Theta_hat_norm, 'fro' )**2/2
+def compute_frob_err(Theta_hat, Theta, pre_norm=False):
+    norm_Theta = la.norm(Theta,'fro') if la.norm(Theta,'fro') else 1
+    if pre_norm:
+        norm_Theta_hat = la.norm(Theta_hat,'fro') if la.norm(Theta_hat,'fro') else 1
+        return la.norm( Theta_hat/norm_Theta_hat - Theta/norm_Theta, 'fro' )**2
+    else:
+        return (la.norm( Theta_hat - Theta, 'fro' )/norm_Theta)**2
 
 def compute_f1_score(Theta_hat, Theta, eps_thresh=.1):
     Theta_hat = Theta_hat / ( Theta_hat.max() + int(Theta_hat.max()==0) )
