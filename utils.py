@@ -356,43 +356,18 @@ def compute_f1_score(Theta_hat, Theta, eps_thresh=.1):
     Theta = ( np.abs(Theta)>eps_thresh ).astype(int)
     return f1_score( Theta_hat.flatten(), Theta.flatten() )
 
-def compute_B_from_Z(Z):
-    B = np.zeros_like(Z)
-    g, p = Z.shape
-    nodes_per_group = Z.sum(axis=1)
-
-    for i in range(p):
-        # One hot encoding of the group of node j
-        groups_i = Z[:,i] > 0
-        # Normalization made with the nodes in the group of node i
-        nodes_in_group = nodes_per_group[groups_i]
-        B[:,i] = -1/nodes_in_group
-        B[groups_i,i] = (g-1)/nodes_in_group
-
-    return B
-
-
-
-
-# TODO: REMOVE
-# def compute_B_from_Z_v2(Z):
-#     g, p = Z.shape
-#     B = np.zeros((p,p))
+def create_Z(p, group_prop):
+    assert np.sum(group_prop) == 1
+    g = len(group_prop)
+    nodes_per_group = [int(p*prop) for prop in group_prop]
     
-#     nodes_per_group = Z.sum(axis=1)
-#     for a in range(g):
-#         p_a = nodes_per_group[Z[:,a] > 0]
-#         for b in range(g):
-#             p_b = nodes_per_group[Z[:,b] > 0]
-#             vector = Z[a,:].T/p_a - Z[b,:].T/p_b
-#             B = B + np.outer(vector, vector.T)
+    Z = np.zeros((g, p))
+    cont = 0
+    for i, n_nodes in enumerate(nodes_per_group):
+        if i == g - 1:
+            Z[i,cont:] = 1
+        else:
+            Z[i,cont:n_nodes+cont] = 1
+            cont += n_nodes
 
-#     # for i in range(p):
-#     #     # One hot encoding of the group of node j
-#     #     groups_i = Z[:,i] > 0
-#     #     # Normalization made with the nodes in the group of node i
-#     #     nodes_in_group = nodes_per_group[groups_i]
-#     #     B[:,i] = -1/nodes_in_group
-#     #     B[groups_i,i] = (g-1)/nodes_in_group
-
-#     return B
+    return Z

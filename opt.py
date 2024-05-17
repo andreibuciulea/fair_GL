@@ -10,7 +10,7 @@ INVALID_BIAS = 'Invalid bias type'
 
 
 def FairGLASSO_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000,
-                     prec_type=None, EARLY_STOP=False, RETURN_ITERS=False):
+                     prec_type=None, tol=1e-3, EARLY_STOP=False, RETURN_ITERS=False):
     """
     Solve a graphical lasso problem with node fairness regularization using the FISTA algorithm.
 
@@ -65,7 +65,7 @@ def FairGLASSO_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000,
         t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
         Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
         
-        if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < 1e-3:
+        if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < tol:
             break
 
         # Update values for next iteration
