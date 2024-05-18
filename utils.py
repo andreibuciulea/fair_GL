@@ -5,6 +5,7 @@ import commentjson as json
 import os
 from sklearn.metrics import f1_score
 from sklearn.cluster import KMeans
+import scipy.io
 
 madcmap = 'viridis'
 num_total = 25
@@ -225,11 +226,7 @@ def compute_dp2(Theta,Z):
                           if a!=b else np.zeros_like(Theta) )
     dp = (1/(g*(g-1))) * np.sum( [ np.sum( Z_til(a,b) * Theta )**2 
                                    for a in range(g) for b in np.delete(np.arange(g),a)] )
-    # Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
-    #            ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
-    #             np.zeros_like(Theta) for b in range(g)] for a in range(g)]
-    # dp = (1/(g*(g-1))) * np.sum( [ np.sum( Z_til[a][b] * Theta )**2 
-    #                                for a in range(g) for b in np.delete(np.arange(g),a)] )
+
     return dp
 
 def compute_dp1(Theta,Z):
@@ -240,11 +237,7 @@ def compute_dp1(Theta,Z):
                           if a!=b else np.zeros_like(Theta) )
     dp = (1/(g*(g-1))) * np.sum( [ np.abs (np.sum( Z_til(a,b) * Theta ) )
                                    for a in range(g) for b in np.delete(np.arange(g),a)] )
-    # Z_til = [[ ((Z[a][:,None]*Z[a][None]) *(1-np.eye(p)))/(p_grp[a]*(p_grp[a]-1)) - 
-    #            ((Z[a][:,None]*Z[b][None]) *(1-np.eye(p)))/(p_grp[a]*p_grp[b]) if a!=b else
-    #             np.zeros_like(Theta) for b in range(g)] for a in range(g)]
-    # dp = (1/(g*(g-1))) * np.sum( [ np.abs(np.sum( Z_til[a][b] * Theta ))
-    #                                for a in range(g) for b in np.delete(np.arange(g),a)] )
+
     return dp
 
 def compute_nodedp2(Theta,Z):
@@ -256,13 +249,6 @@ def compute_nodedp2(Theta,Z):
     dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
         np.sum( Z_til(a,i) * Theta )**2
         for a in range(g) for i in range(p) ] )
-    # Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
-    #                   np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
-    #                   np.zeros_like(Theta) for b in range(g)],axis=0)
-    #         for i in range(p)] for a in range(g)]
-    # dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
-    #     np.sum( Z_til[a][i] * Theta )**2
-    #     for a in range(g) for i in range(p) ] )
     return dp
 
 def compute_nodedp1(Theta,Z):
@@ -274,13 +260,7 @@ def compute_nodedp1(Theta,Z):
     dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
         np.abs( np.sum( Z_til(a,i) * Theta ) )
         for a in range(g) for i in range(p) ] )
-    # Z_til = [[np.sum([np.eye(p)[i][:,None]*(Z[a]*(1-np.eye(p)[i]))[None]/p_grp[a] - 
-    #                   np.eye(p)[i][:,None]*(Z[b]*(1-np.eye(p)[i]))[None]/p_grp[b] if a!=b else 
-    #                   np.zeros_like(Theta) for b in range(g)],axis=0)
-    #         for i in range(p)] for a in range(g)]
-    # dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
-    #     np.abs( np.sum( Z_til[a][i] * Theta ) )
-    #     for a in range(g) for i in range(p) ] )
+    
     return dp
 
 def compute_bias(A,Z,bias_type:str='weighted_dp'):
@@ -373,3 +353,97 @@ def create_Z(p, group_prop):
             cont += n_nodes
 
     return Z
+
+def compute_B_from_Z(Z):
+    B = np.zeros_like(Z)
+    g, p = Z.shape
+    nodes_per_group = Z.sum(axis=1)
+
+    for i in range(p):
+        # One hot encoding of the group of node j
+        groups_i = Z[:,i] > 0
+        # Normalization made with the nodes in the group of node i
+        nodes_in_group = nodes_per_group[groups_i]
+        B[:,i] = -1/nodes_in_group
+        B[groups_i,i] = (g-1)/nodes_in_group
+
+    return B
+
+def load_datasets(dname):
+    if dname == 'school':
+        dataset = scipy.io.loadmat('real_data/school/school_data.mat')
+    elif dname == 'coautorship41':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_41.mat')
+    elif dname == 'coautorship49':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_49.mat')
+    elif dname == 'coautorship71':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_71.mat')
+    elif dname == 'coautorship100':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_100.mat')
+    elif dname == 'coautorship116':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_116.mat')
+    elif dname == 'coautorship125':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_125_biased.mat')
+    elif dname == 'coautorship126':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_126_biased.mat')
+    elif dname == 'coautorship130':
+        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_130.mat')
+    elif dname == 'contact':
+        dataset = scipy.io.loadmat('real_data/friendship/contact.mat')
+    elif dname == 'facebook':
+        dataset = scipy.io.loadmat('real_data/friendship/facebook.mat')
+    elif dname == 'friendship':
+        dataset = scipy.io.loadmat('real_data/friendship/friendship.mat')
+    elif dname == 'contact311':
+        dataset = scipy.io.loadmat('real_data/friendship/contact311.mat')
+    elif dname == 'movielens':
+        dataset = scipy.io.loadmat('real_data/movielens/movielens.mat')
+    else:
+        print('Unknown dataset')
+
+    A_true = np.array(dataset['A_norm'])
+    A_true_bin = np.array(dataset['A_bin'])
+    Zaux = np.array(dataset['Z'])
+    Z = Zaux[~np.all(Zaux == 0, axis=1)] #remove zero rows
+    z = np.array(dataset['z'])
+    C_est = np.array(dataset['C'])
+    C_est_norm = np.array(dataset['C_norm'])
+    if (dname == 'school' or dname == 'contact311' or dname == 'movielens'):
+        C_est_norm = np.array(dataset['C'])
+
+    return A_true, A_true_bin, C_est, C_est_norm, Z, z
+
+def extract_estimation(Theta_hat,A_true_bin):
+    #removing diagonal + abs 
+    np.fill_diagonal(Theta_hat,0)
+    Theta_hat = np.abs(Theta_hat)
+    A_hat = Theta_hat/np.max(Theta_hat)
+    # binarizing the true graph
+    ne = np.sum(A_true_bin)
+    a = np.sort(A_hat.flatten(), axis=None)[::-1]
+    th = a[ne - 1]
+    A_hat_bin = np.array(A_hat > th, dtype=float)
+    return A_hat, A_hat_bin
+
+def show_params(mus1,etas,est_error,est_fsc,dn):
+    # Find the indices of the minimum error, ignoring NaNs
+    min_err_idx = np.unravel_index(np.nanargmin(est_error), est_error.shape)
+    # Extract the corresponding values of mu1 and eta
+    min_mu1 = mus1[min_err_idx[0]]
+    min_eta = etas[min_err_idx[1]]
+    # Extract the minimum error value, ignoring NaNs
+    min_error = np.nanmin(est_error)
+
+    # Find the indices of the maximum f1 score
+    max_fsc_idx = np.unravel_index(np.nanargmax(est_fsc), est_fsc.shape)
+    # Extract the corresponding values of mu1 and eta
+    max_mu1 = mus1[max_fsc_idx[0]]
+    max_eta = etas[max_fsc_idx[1]]
+    # Extract the maximum f1 score value
+    max_fsc = np.nanmax(est_fsc)
+
+    # Print the values
+    print(dn, ": Min. error at mu1 =", min_mu1, "and eta =", min_eta, "Min. error value:", min_error)
+    # Print the values
+    print(dn, ": Max. F1 score at mu1 =", max_mu1, "and eta =", max_eta, "Max. F1 score value:", max_fsc)
+    print()
