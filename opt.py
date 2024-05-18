@@ -12,7 +12,7 @@ INVALID_BIAS = 'Invalid bias type'
 def FairGLASSO_fista(Sigma, mu1, eta, mu2, Z, bias_type, epsilon=.1, iters=1000,
                      prec_type=None, tol=1e-3, EARLY_STOP=False, RETURN_ITERS=False):
     """
-    Solve a graphical lasso problem with node fairness regularization using the FISTA algorithm.
+    Solve a graphical lasso problem with fairness regularization using the FISTA algorithm.
 
     Parameters:
     -----------
@@ -133,7 +133,75 @@ def prox_grad_step_(Sigma, Theta, Z, mu2, mu1, eta, epsilon, bias_type, prec_typ
     Theta_next = eigenvecs @ np.diag( eigenvals ) @ eigenvecs.T
 
     return Theta_next
+# ----------------------------------------------------
 
+def FairGSR_fista(Sigma, mu, eta, alpha, Z, bias_type, iters=1000,
+                     prec_type=None, tol=1e-3, EARLY_STOP=False, RETURN_ITERS=False):
+    """
+    Solve a graph stationary recovery problem with fairness regularization using the FISTA algorithm.
+    """
+    _, p = Z.shape
+    # Ensure Theta_current is initialized to a valid adjacency
+    Theta_prev = np.pinv(Sigma_sq)
+    np.fill_diagonal(Theta_prev, 0)
+    Theta_prev[Theta_prev < 0] = 0
+    Theta_fista = np.copy(Theta_prev)
+    t_k = 1
+
+    # Precompute fairness penalty matrix
+    B = compute_bias_matrix_(Z, bias_type)
+    Sigma_sq = Sigma @ Sigma
+
+    # Initialize array to store iterations to check convergence
+    if RETURN_ITERS:
+        norm_iters = []
+
+    # NOTE: The function is exactly the same than that of FairGLASSO_fista, only changing on the prox_grad_step_
+    # function. We should define a class and use inheritance.
+    for _ in range(iters):
+        Theta_k = prox_grad_step_stationary_( Sigma, Sigma_sq, Theta_fista, B, alpha, mu, eta, bias_type, prec_type )
+        t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
+        Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
+        
+        if EARLY_STOP and np.linalg.norm(Theta_prev-Theta_k,'fro') < tol:
+            break
+
+        # Update values for next iteration
+        if RETURN_ITERS:
+            norm_iters.append( np.linalg.norm(Theta_prev-Theta_k,'fro') )
+
+        Theta_prev = Theta_k
+        t_k = t_next
+
+    if RETURN_ITERS:
+        return Theta_k, norm_iters
+    
+    return Theta_k
+
+def prox_grad_step_stationary_(Sigma, Sigma_sq, Theta, Z, alpha, mu, eta, bias_type, prec_type):
+    Soft_thresh = lambda R, alpha: np.maximum( np.abs(R)-alpha, 0 ) * np.sign(R)
+    p = Sigma.shape[0]
+
+    # Gradient step + soft-thresholding
+    fairness_term = grad_fairness_penalty_(Theta, Z, bias_type) if mu != 0 else 0
+    Gradient = alpha*(Sigma_sq @ Theta - Sigma @ Theta @ Sigma) + mu*fairness_term
+    Theta_aux = Theta - eta*Gradient
+    Theta_aux[np.eye(p)==0] = Soft_thresh( Theta_aux[np.eye(p)==0], eta )
+    Theta_aux = (Theta_aux + Theta_aux.T)/2
+
+    # Scale first column to 1 to avois all-zero trivial solution
+    Theta_aux = Theta_aux / np.abs(Theta_aux).sum(axis=0)[0]
+
+    # Projection
+    if prec_type == 'non-negative':
+        # Projection onto Adjacency matrices
+        Theta_aux[(Theta_aux <= 0)*(np.eye(p) == 0)] = 0
+        np.fill_diagonal(Theta_aux, 0)
+    elif prec_type == 'non-positive':
+        # Projection onto non-positive matrices
+        Theta_aux[(Theta_aux >= 0)*(np.eye(p)==0)] = 0
+
+    return Theta_aux
 
 def FairGLASSO_cvx(Sigma, Z, mu1=.1, mu2=1, epsilon=.1, bias_type='dp'):
     g,p = Z.shape
