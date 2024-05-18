@@ -183,8 +183,6 @@ def prox_grad_step_stationary_(Sigma, Sigma_sq, Theta, Z, mu1, mu2, eta, bias_ty
     p = Sigma.shape[0]
 
     # Gradient step + soft-thresholding
-    # fairness_term = grad_fairness_penalty_(Theta, Z, bias_type) if mu != 0 else 0
-    # Gradient = alpha*(Sigma_sq @ Theta - Sigma @ Theta @ Sigma) + mu*fairness_term
     fairness_term = grad_fairness_penalty_(Theta, Z, bias_type) if mu2 != 0 else 0
     Gradient = Sigma_sq @ Theta - Sigma @ Theta @ Sigma + mu2*fairness_term
     Theta_aux = Theta - eta*Gradient
