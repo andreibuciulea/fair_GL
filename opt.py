@@ -135,14 +135,14 @@ def prox_grad_step_(Sigma, Theta, Z, mu2, mu1, eta, epsilon, bias_type, prec_typ
     return Theta_next
 # ----------------------------------------------------
 
-def FairGSR_fista(Sigma, mu, eta, alpha, Z, bias_type, iters=1000,
+def FairGSR_fista(Sigma, mu1, eta, mu2, Z, bias_type, iters=1000,
                      prec_type=None, tol=1e-3, EARLY_STOP=False, RETURN_ITERS=False):
     """
     Solve a graph stationary recovery problem with fairness regularization using the FISTA algorithm.
     """
     _, p = Z.shape
     # Ensure Theta_current is initialized to a valid adjacency
-    Theta_prev = np.pinv(Sigma_sq)
+    Theta_prev = la.pinv(Sigma)
     np.fill_diagonal(Theta_prev, 0)
     Theta_prev[Theta_prev < 0] = 0
     Theta_fista = np.copy(Theta_prev)
@@ -159,7 +159,7 @@ def FairGSR_fista(Sigma, mu, eta, alpha, Z, bias_type, iters=1000,
     # NOTE: The function is exactly the same than that of FairGLASSO_fista, only changing on the prox_grad_step_
     # function. We should define a class and use inheritance.
     for _ in range(iters):
-        Theta_k = prox_grad_step_stationary_( Sigma, Sigma_sq, Theta_fista, B, alpha, mu, eta, bias_type, prec_type )
+        Theta_k = prox_grad_step_stationary_( Sigma, Sigma_sq, Theta_fista, B, mu1, mu2, eta, bias_type, prec_type )
         t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
         Theta_fista = Theta_k + (t_k - 1)/t_next*(Theta_k - Theta_prev)
         
@@ -178,15 +178,17 @@ def FairGSR_fista(Sigma, mu, eta, alpha, Z, bias_type, iters=1000,
     
     return Theta_k
 
-def prox_grad_step_stationary_(Sigma, Sigma_sq, Theta, Z, alpha, mu, eta, bias_type, prec_type):
+def prox_grad_step_stationary_(Sigma, Sigma_sq, Theta, Z, mu1, mu2, eta, bias_type, prec_type):
     Soft_thresh = lambda R, alpha: np.maximum( np.abs(R)-alpha, 0 ) * np.sign(R)
     p = Sigma.shape[0]
 
     # Gradient step + soft-thresholding
-    fairness_term = grad_fairness_penalty_(Theta, Z, bias_type) if mu != 0 else 0
-    Gradient = alpha*(Sigma_sq @ Theta - Sigma @ Theta @ Sigma) + mu*fairness_term
+    # fairness_term = grad_fairness_penalty_(Theta, Z, bias_type) if mu != 0 else 0
+    # Gradient = alpha*(Sigma_sq @ Theta - Sigma @ Theta @ Sigma) + mu*fairness_term
+    fairness_term = grad_fairness_penalty_(Theta, Z, bias_type) if mu2 != 0 else 0
+    Gradient = Sigma_sq @ Theta - Sigma @ Theta @ Sigma + mu2*fairness_term
     Theta_aux = Theta - eta*Gradient
-    Theta_aux[np.eye(p)==0] = Soft_thresh( Theta_aux[np.eye(p)==0], eta )
+    Theta_aux[np.eye(p)==0] = Soft_thresh( Theta_aux[np.eye(p)==0], eta*mu1 )
     Theta_aux = (Theta_aux + Theta_aux.T)/2
 
     # Scale first column to 1 to avois all-zero trivial solution
