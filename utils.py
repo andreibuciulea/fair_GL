@@ -465,3 +465,19 @@ def error_to_csv(fname, models, xaxis, error):
 
     np.savetxt(fname, data, delimiter=',', header=header, comments='')
     print('SAVED as:', fname)
+
+
+def error_bias_to_csv(fname, models, bias, error):    
+    data = np.concatenate((error, bias), axis=1)
+
+    header = ''  
+    for i, model in enumerate(models):
+        header += f"{model['leg']}-err, "
+
+    for i, model in enumerate(models):
+        header += f"{model['leg']}-bias"
+        if i < len(models)-1:
+            header += ', '
+
+    np.savetxt(fname, data, delimiter=',', header=header, comments='')
+    print('SAVED as:', fname)
