@@ -447,3 +447,21 @@ def show_params(mus1,etas,est_error,est_fsc,dn):
     # Print the values
     print(dn, ": Max. F1 score at mu1 =", max_mu1, "and eta =", max_eta, "Max. F1 score value:", max_fsc)
     print()
+
+def error_to_csv(fname, models, xaxis, error):
+    header = ''
+    data = error
+    
+    if isinstance(xaxis, list):
+        xaxis = np.array(xaxis)
+
+    data = np.concatenate((xaxis.reshape([xaxis.size, 1]), error), axis=1)
+    header = 'xaxis, '  
+
+    for i, model in enumerate(models):
+        header += model['leg']
+        if i < len(models)-1:
+            header += ', '
+
+    np.savetxt(fname, data, delimiter=',', header=header, comments='')
+    print('SAVED as:', fname)
