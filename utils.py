@@ -1,5 +1,4 @@
 import numpy as np
-from numpy import linalg as la
 import matplotlib.pyplot as plt
 import commentjson as json
 import os
@@ -78,7 +77,7 @@ def madimshow(mat,cmap:str=madcmap,xlabel:str='',ylabel:str='',axis=True,figsize
 # ---------------------------
 
 def vec(X):
-    return la.vstack(X)
+    return np.linalg.vstack(X)
 
 def soft_thresh(z, lmbda):
     return np.maximum(np.abs(z) - lmbda, 0)*np.sign(z)
@@ -140,7 +139,7 @@ def generate_connected_er(N:int,edge_prob:float):
     assert edge_prob>=0 and edge_prob<=1, 'Invalid edge probability.'
     A = lowtri2mat(np.random.binomial(1,edge_prob,int(N*(N-1)/2)))
     L = np.diag(np.sum(A,axis=0)) - A
-    while np.sum(np.abs(la.eigh(L)[0])<1e-9)>1:
+    while np.sum(np.abs(np.linalg.eigh(L)[0])<1e-9)>1:
         A = lowtri2mat(np.random.binomial(1,edge_prob,int(N*(N-1)/2)))
         L = np.diag(np.sum(A,axis=0)) - A
     return A
@@ -170,8 +169,8 @@ def create_filter(A,L:int=3,h=None):
         L = len(h)
     else:
         h = np.random.rand(L)
-    h = h/la.norm(h,1)
-    H = np.sum([h[l]*la.matrix_power(A,l) for l in range(L)],axis=0)
+    h = h/np.linalg.norm(h,1)
+    H = np.sum([h[l]*np.linalg.matrix_power(A,l) for l in range(L)],axis=0)
     return H
 
 def create_poly_cov(A=None,H=None,L:int=3):
@@ -183,18 +182,18 @@ def create_poly_cov(A=None,H=None,L:int=3):
 
 def create_gmrf_cov(A):
     (N,N) = A.shape
-    eigvals = la.eigh(A)[0]
+    eigvals = np.linalg.eigh(A)[0]
     C_inv = (.01-eigvals.min())*np.eye(N) + (.9+.1*np.random.rand())*A
-    C = la.inv(C_inv)
+    C = np.linalg.inv(C_inv)
     return C
 
 def create_mtp2_cov(A):
     (p,p) = A.shape
-    eigvals = la.eigh(A)[0]
+    eigvals = np.linalg.eigh(A)[0]
     Theta = 2*(.01 - eigvals.min())*np.eye(p) - lowtri2mat( mat2lowtri(A) * ( .9 + .1*np.random.rand(kchoose2(p)) ) )
-    while np.min(la.eigvalsh(Theta)[0]) < 0:
+    while np.min(np.linalg.eigvalsh(Theta)[0]) < 0:
         Theta[np.eye(p)==1] = np.diag(Theta) * 1.01
-    Sigma = la.inv(Theta)
+    Sigma = np.linalg.inv(Theta)
     return Sigma, Theta
 
 def poly_samples(H, M:int=None):
@@ -216,7 +215,8 @@ def est_cov(X):
     C_est = X@X.T/M
     return C_est
 
-# ---------------------------
+# --------------------------
+
 
 def compute_dp2(Theta,Z):
     (g,p) = Z.shape
@@ -249,6 +249,7 @@ def compute_nodedp2(Theta,Z):
     dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
         np.sum( Z_til(a,i) * Theta )**2
         for a in range(g) for i in range(p) ] )
+
     return dp
 
 def compute_nodedp1(Theta,Z):
@@ -260,7 +261,7 @@ def compute_nodedp1(Theta,Z):
     dp = (1/(p*g*(g-1)**2)) * np.sum( [ 
         np.abs( np.sum( Z_til(a,i) * Theta ) )
         for a in range(g) for i in range(p) ] )
-    
+
     return dp
 
 def compute_bias(A,Z,bias_type:str='weighted_dp'):
@@ -321,15 +322,14 @@ def compute_tpcc(X1,x2):
 
 def compute_inv_err(Theta_hat, Sigma):
     (p,p) = Theta_hat.shape
-    return la.norm( Theta_hat@Sigma - np.eye(p), 'fro' )**2
+    return np.linalg.norm( Theta_hat@Sigma - np.eye(p), 'fro' )**2
 
-def compute_frob_err(Theta_hat, Theta, pre_norm=False):
-    norm_Theta = la.norm(Theta,'fro') if la.norm(Theta,'fro') else 1
-    if pre_norm:
-        norm_Theta_hat = la.norm(Theta_hat,'fro') if la.norm(Theta_hat,'fro') else 1
-        return la.norm( Theta_hat/norm_Theta_hat - Theta/norm_Theta, 'fro' )**2
-    else:
-        return (la.norm( Theta_hat - Theta, 'fro' )/norm_Theta)**2
+def compute_frob_err(Theta_hat, Theta):
+    norm_Theta = np.linalg.norm(Theta,'fro') if np.linalg.norm(Theta,'fro') else 1
+    return (np.linalg.norm( Theta_hat - Theta, 'fro' )/norm_Theta)**2
+    # Theta_hat_norm = Theta_hat / np.linalg.norm( Theta_hat, 'fro' ) if np.linalg.norm( Theta_hat,'fro' ) else np.zeros_like(Theta_hat)
+    # Theta_norm = Theta / np.linalg.norm( Theta, 'fro' ) if np.linalg.norm( Theta,'fro' ) else np.zeros_like(Theta)
+    # return np.linalg.norm( Theta_norm - Theta_hat_norm, 'fro' )**2/2
 
 def compute_f1_score(Theta_hat, Theta, eps_thresh=.1):
     Theta_hat = Theta_hat / ( Theta_hat.max() + int(Theta_hat.max()==0) )
@@ -337,22 +337,6 @@ def compute_f1_score(Theta_hat, Theta, eps_thresh=.1):
     Theta = Theta / ( Theta.max() + int(Theta.max()==0) )
     Theta = ( np.abs(Theta)>eps_thresh ).astype(int)
     return f1_score( Theta_hat.flatten(), Theta.flatten() )
-
-def create_Z(p, group_prop):
-    assert np.sum(group_prop) == 1
-    g = len(group_prop)
-    nodes_per_group = [int(p*prop) for prop in group_prop]
-    
-    Z = np.zeros((g, p))
-    cont = 0
-    for i, n_nodes in enumerate(nodes_per_group):
-        if i == g - 1:
-            Z[i,cont:] = 1
-        else:
-            Z[i,cont:n_nodes+cont] = 1
-            cont += n_nodes
-
-    return Z
 
 def compute_B_from_Z(Z):
     B = np.zeros_like(Z)
@@ -370,32 +354,17 @@ def compute_B_from_Z(Z):
     return B
 
 def load_datasets(dname):
+
     if dname == 'school':
         dataset = scipy.io.loadmat('real_data/school/school_data.mat')
-    elif dname == 'coautorship41':
-        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_41.mat')
-    elif dname == 'coautorship49':
-        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_49.mat')
-    elif dname == 'coautorship71':
-        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_71.mat')
-    elif dname == 'coautorship100':
-        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_100.mat')
-    elif dname == 'coautorship116':
-        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_116.mat')
-    elif dname == 'coautorship125':
-        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_125_biased.mat')
-    elif dname == 'coautorship126':
-        dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_126_biased.mat')
+    elif dname == 'schoolCs4':
+        dataset = scipy.io.loadmat('real_data/school/school_data_Cs4.mat')
     elif dname == 'coautorship130':
         dataset = scipy.io.loadmat('real_data/coautorship/coautorship_data_130.mat')
-    elif dname == 'contact':
-        dataset = scipy.io.loadmat('real_data/friendship/contact.mat')
-    elif dname == 'facebook':
-        dataset = scipy.io.loadmat('real_data/friendship/facebook.mat')
-    elif dname == 'friendship':
-        dataset = scipy.io.loadmat('real_data/friendship/friendship.mat')
     elif dname == 'contact311':
         dataset = scipy.io.loadmat('real_data/friendship/contact311.mat')
+    elif dname == 'contact311Cs4':
+        dataset = scipy.io.loadmat('real_data/friendship/contact311Cs4.mat')
     elif dname == 'movielens':
         dataset = scipy.io.loadmat('real_data/movielens/movielens.mat')
     else:
@@ -408,10 +377,12 @@ def load_datasets(dname):
     z = np.array(dataset['z'])
     C_est = np.array(dataset['C'])
     C_est_norm = np.array(dataset['C_norm'])
-    if (dname == 'school' or dname == 'contact311' or dname == 'movielens'):
+    if (dname == 'school' or dname == 'schoolCs4' or dname == 'contact311' or dname == 'movielens' or dname == 'contact311Cs4'):
         C_est_norm = np.array(dataset['C'])
 
+
     return A_true, A_true_bin, C_est, C_est_norm, Z, z
+
 
 def extract_estimation(Theta_hat,A_true_bin):
     #removing diagonal + abs 
@@ -424,6 +395,7 @@ def extract_estimation(Theta_hat,A_true_bin):
     th = a[ne - 1]
     A_hat_bin = np.array(A_hat > th, dtype=float)
     return A_hat, A_hat_bin
+
 
 def show_params(mus1,etas,est_error,est_fsc,dn):
     # Find the indices of the minimum error, ignoring NaNs
@@ -448,36 +420,29 @@ def show_params(mus1,etas,est_error,est_fsc,dn):
     print(dn, ": Max. F1 score at mu1 =", max_mu1, "and eta =", max_eta, "Max. F1 score value:", max_fsc)
     print()
 
-def error_to_csv(fname, models, xaxis, error):
-    header = ''
-    data = error
-    
-    if isinstance(xaxis, list):
-        xaxis = np.array(xaxis)
 
-    data = np.concatenate((xaxis.reshape([xaxis.size, 1]), error), axis=1)
-    header = 'xaxis, '  
+def rewire_precmat(Theta, rewire=3, replace=False):
+    p,p = Theta.shape
+    theta = mat2lowtri(Theta)
+    if not replace:
+        for _ in range(rewire):
+            ix = np.random.choice(len(theta),2,replace=replace)
+            theta[[ix[0],ix[1]]] = theta[[ix[1],ix[0]]]
+    else:
+        ix = np.random.choice(len(theta), 2*rewire, replace=replace)
+        for i in range(rewire):
+            theta[[ix[i],ix[rewire+i]]] = theta[[ix[rewire+i],ix[i]]]
+    Theta_rw = lowtri2mat(theta) + Theta*np.eye(p)
+    return Theta_rw
 
-    for i, model in enumerate(models):
-        header += model['leg']
-        if i < len(models)-1:
-            header += ', '
+def compute_all_bias(Theta,Z):
 
-    np.savetxt(fname, data, delimiter=',', header=header, comments='')
-    print('SAVED as:', fname)
+    mean_Theta = np.mean(Theta)
+    bias = np.zeros((5,))
+    bias[0] = compute_dp1(Theta,Z)
+    bias[1] = compute_dp2(Theta,Z)
+    bias[2] = compute_nodedp1(Theta,Z)
+    bias[3] = compute_nodedp2(Theta,Z)
+    bias[4] = np.sqrt(compute_dp2(Theta, Z)) / mean_Theta if mean_Theta else 0
 
-
-def error_bias_to_csv(fname, models, bias, error):    
-    data = np.concatenate((error, bias), axis=1)
-
-    header = ''  
-    for i, model in enumerate(models):
-        header += f"{model['leg']}-err, "
-
-    for i, model in enumerate(models):
-        header += f"{model['leg']}-bias"
-        if i < len(models)-1:
-            header += ', '
-
-    np.savetxt(fname, data, delimiter=',', header=header, comments='')
-    print('SAVED as:', fname)
+    return bias
