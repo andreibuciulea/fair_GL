@@ -1,1 +1,11 @@
 Fair Graphical Lasso
+
+This folder contains the necessary code to run the experiments associated with the submission “Fair GLASSO: Estimating Fair Graphical Models with Unbiased Statistical Behavior”. 
+
+The proposed algorithm and the baselines considered are included in opt.py file. We used Python 3.10.13 and the required packages are provided in the requirements.txt file.
+
+Notebooks running the experiments: the code to be reproduced the figures in the paper is contained in the following notebooks:
+-	synthsim_varybias.ipynb: contains the code associated to the experiment shown in Section “Estimating Fair Graphs with Biased Data”. The figure in the manuscript is created by combining the error and bias plots and selecting GLASSO, FGL and FGL H_node models.
+-	graph_size_exp.ipynb: this notebook contains two related experiments assessing the influence of the size of the graphs to be learned. The first section is related to the “Performance as Graph Size Increases” experiment, and the second section includes additional results.
+-	realdata_sim_karateclub.ipynb: the code for running the experiment “Social Network with Synthetic Signals” and the graph visualizations included therein is provided in this notebook.
+-	real_data_experiment: this notebook contains the code related to the “Fair GGMs for Real-World Data” section. The values shown in Table 2 in the manuscript were drawn from the figures in these results using the show_results_real_data.ipynb file.
