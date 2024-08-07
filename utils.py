@@ -446,3 +446,37 @@ def compute_all_bias(Theta,Z):
     bias[4] = np.sqrt(compute_dp2(Theta, Z)) / mean_Theta if mean_Theta else 0
 
     return bias
+
+def error_to_csv(fname, models, xaxis, error):
+    header = ''
+    data = error 
+    
+    if isinstance(xaxis, list):
+        xaxis = np.array(xaxis)
+
+    data = np.concatenate((xaxis.reshape([xaxis.size, 1]), error), axis=1)
+    header = 'xaxis, '  
+
+    for i, model in enumerate(models):
+        header += model['leg']
+        if i < len(models)-1:
+            header += ', '
+
+    np.savetxt(fname, data, delimiter=',', header=header, comments='')
+    print('SAVED as:', fname)
+
+
+def error_bias_to_csv(fname, models, bias, error):    
+    data = np.concatenate((error, bias), axis=1)
+
+    header = ''  
+    for i, model in enumerate(models):
+        header += f"{model['leg']}-err, "
+
+    for i, model in enumerate(models):
+        header += f"{model['leg']}-bias"
+        if i < len(models)-1:
+            header += ', '
+
+    np.savetxt(fname, data, delimiter=',', header=header, comments='')
+    print('SAVED as:', fname)
